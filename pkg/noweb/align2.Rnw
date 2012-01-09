@@ -75,7 +75,7 @@ Create the set of 3 return structures, which will be matrices with
 (1+nspouse) columns.
 If there are children then other routines will widen the result.
 <<alignped1>>= 
-    nid <- fam <- matrix(0, maxlev, nspouse+1)
+    nid <- fam <- matrix(0L, maxlev, nspouse+1)
     pos <- matrix(0.0, maxlev, nspouse +1)
     n[lev] <- nspouse +1       
     pos[lev,] <- 0:nspouse
@@ -93,9 +93,9 @@ For someone with lots of spouses we try to split them evenly.
 If the number of spouses is odd, then men should have more on the
 right than on the left, women more on the right.
 Any hints in the spouselist matrix override.
-We put the marriages whose direction is defined in the spouselist
-closest to [[x]], then add undetermined ones to the left and
-right in the order that they are found in the list.
+We put the undecided marriages closest to [[x]], 
+then add predetermined ones to the left and
+right.
 The majority of marriages will be undetermined singletons, for which
 nleft will be 1 for female (put my husband to the left) and 0 for male.
 <<alignped1>>=
@@ -104,12 +104,13 @@ nleft will be 1 for female (put my husband to the left) and 0 for male.
     if (any(spouselist[sprows,3] ==0)) {
         #Not yet decided spouses
         indx <- which(spouselist[sprows,3] ==0)
-        nleft <- floor((length(indx) + (sex==2))/2)
+        nleft <- floor((length(sprows) + (sex==2))/2) #total number to left
+        nleft <- nleft - length(lspouse)  #number of undecideds to the left
         if (nleft >0) {
-            lspouse <- c(spouse[indx[1:nleft]], lspouse)
+            lspouse <- c(lspouse, spouse[indx[1:nleft]])
             indx <- indx[-(1:nleft)]
           }
-        if (length(indx)) rspouse <- c(rspouse, spouse[indx])
+        if (length(indx)) rspouse <- c(spouse[indx], rspouse)
       }
 
     nid[lev,] <- c(lspouse, x, rspouse)
@@ -379,7 +380,7 @@ for (i in 1:maxlev) {
 
 \section{alignped4}
 The alignped4 routine is the final step of alignment.  It attempts to line
-up children under parents and put spouses and siblings `close' to each other, 
+up children under parents and put spouses and siblings `close' to each other,%'` 
 to the extent possible within the constraints of page width.  This routine
 used to be the most intricate and complex of the set, until I realized that
 the task could be cast as constrained quadradic optimization.
@@ -393,7 +394,8 @@ true in this problem.
 
 There are two important parameters for the function.  One is the user specified
 maximum width.  The smallest possible width is the maximum number of subjects
-on a line, if the user's suggestion is too low it is increased to that 1+ that
+on a line, if the user's suggestion  %'
+is too low it is increased to that 1+ that
 amount (to give just a little wiggle room).
 The other is a vector of 2 alignment parameters $a$ and $b$.
 For each set of siblings ${x}$ with parents at $p_1$ and $p_2$ the
@@ -422,7 +424,7 @@ of [[sum(n)]] positions.  A work array myid keeps track of the parameter
 number for each position so that it is easy to find.
 There is one extra penalty added at the end.  Because the penalty amount
 would be the same if all the final positions were shifted by a constant,
-the penalty matrix will not be positive definite; solve.QP doesn't like
+the penalty matrix will not be positive definite; solve.QP doesn't like  %'
 this.  We add a tiny amount of leftward pull to the widest line.
 <<alignped4>>=
 alignped4 <- function(rval, spouse, level, width, align) {

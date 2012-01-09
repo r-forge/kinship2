@@ -1,22 +1,6 @@
-\documentclass{article}
-\usepackage{noweb}
-\usepackage[pdftex]{graphicx}
-%\usepackage{times}
-\addtolength{\textwidth}{1in}
-\addtolength{\oddsidemargin}{-.5in}
-\setlength{\evensidemargin}{\oddsidemargin}
 
-\newcommand{\myfig}[1]{\resizebox{\textwidth}{!}
-                        {\includegraphics{figure/#1.pdf}}}
 
-\noweboptions{breakcode}
-\title{The \emph{pedigree.shrink} functions in R}
-\author{Daniel Schaid, Shannon McDonnell, Steven Iturria, Erin Carlson, Jason Sinnwell}
-
-\begin{document}
-\maketitle
 \section{Intro to Pedigree Shrink}
-
 
 The pedigree.shrink functions were initially written to deal with a pedigree
 represented as a data.frame with pedTrim, written by Steve Iturria, to trim 
@@ -31,7 +15,8 @@ kinship package.
 This file also contains the pedigree.unrelated function, developed by Dan 
 Schaid and Shannon McDonnell, which uses the kinship matrix to 
 determine relatedness of subjects in a pedigree, and returns the person id
-of the individuals that are less related. Details described below.
+of one of the maximal sets of individuals that are not related. 
+Details described below.
 
 
 \section{Pedigree Shrink}
@@ -47,7 +32,6 @@ Accepts the following input
   \item[seed] seed to control randomness
   \item[maxBits] bit size to shrink the pedigree size under
 \end{description}
-
 
 <<pedigree.shrink>>=
 
@@ -107,35 +91,46 @@ pedigree.shrink <- function(ped, avail, affected=NULL, seed=NULL, maxBits = 16){
   ## available and does not have an available descendant
   
   idTrimUnavail <- findUnavailable(ped, avail)
+
   
-  if(length(idTrimUnavail)) {
+  if(length(idTrimUnavail)) {    
+    
     pedTrimmed <- pedigree.trim(idTrimUnavail, ped)
     avail <- avail[match(pedTrimmed$id, ped$id)]
     idTrimmed <- c(idTrimmed, idTrimUnavail)
     idList$unavail <- paste(idTrimUnavail, collapse=' ')
+
+  } else {
+    ## no trimming, reset to original ped
+    pedTrimmed <- ped
   }
 
   
-  ## now trim any available terminal subjects with unknown phenotype
+  ## Next trim any available terminal subjects with unknown phenotype
   ## but only if both parents are available
+  
+  ## added nNew>0 check because no need to trim anymore if empty ped
+  
   nChange <- 1
   idList$noninform = NULL
-  while(nChange > 0){
+  nNew <- length(pedTrimmed$id)
+
+  while(nChange > 0 & nNew > 0){
     nOld <- length(pedTrimmed$id)
     
     ## findAvailNonInform finds non-informative, but after suggesting 
     ## their removal, checks for more unavailable subjects before returning
     idTrimNonInform <- findAvailNonInform(pedTrimmed, avail)
-
+    
     if(length(idTrimNonInform)) {
-      pedNew <- pedigree.trim(idTrimNonInform, pedTrimmed)
-      avail <- avail[match(pedNew$id, pedTrimmed$id)]
-      idTrimmed <- c(idTrimmed, idTrimNonInform)
-      idList$noninform = paste(c(idList$noninform, idTrimNonInform), collapse=' ')
-      pedTrimmed <- pedNew
-      
+        pedNew <- pedigree.trim(idTrimNonInform, pedTrimmed)
+        avail <- avail[match(pedNew$id, pedTrimmed$id)]
+        idTrimmed <- c(idTrimmed, idTrimNonInform)
+        idList$noninform = paste(c(idList$noninform, 
+               idTrimNonInform), collapse=' ')
+        pedTrimmed <- pedNew
+        
     }
-  
     nNew <- length(pedTrimmed$id)
     nChange <- nOld - nNew
     
@@ -145,9 +140,9 @@ pedigree.shrink <- function(ped, avail, affected=NULL, seed=NULL, maxBits = 16){
   nIntermed <- length(pedTrimmed$id)
   
   bitSize <- bitSize(pedTrimmed)$bitSize
-  
-  #### Now sequentially shrink to fit bitSize <= maxBits
-
+    
+  ## Now sequentially shrink to fit bitSize <= maxBits
+    
   bitVec <- c(bitSizeOriginal,bitSize)
   
   isTrimmed <- TRUE
@@ -155,11 +150,11 @@ pedigree.shrink <- function(ped, avail, affected=NULL, seed=NULL, maxBits = 16){
   
   while(isTrimmed & (bitSize > maxBits))
     {  
-      
+        
       ## First, try trimming by unknown status
       save <- findAvailAffected(pedTrimmed, avail, affstatus=NA)
       isTrimmed <- save$isTrimmed
-
+      
       ## Second, try trimming by unaffected status if no unknowns to trim
       if(!isTrimmed)
         {
@@ -172,22 +167,23 @@ pedigree.shrink <- function(ped, avail, affected=NULL, seed=NULL, maxBits = 16){
       ## Third, try trimming by affected status if no unknowns & no unaffecteds
       ## to trim
       if(!isTrimmed) {
-          save <- findAvailAffected(pedTrimmed, avail, affstatus=1)
-          isTrimmed <- save$isTrimmed
+        save <- findAvailAffected(pedTrimmed, avail, affstatus=1)
+        isTrimmed <- save$isTrimmed
       }
       
       if(isTrimmed)  {
-          pedTrimmed <- save$ped
-          avail <- save$newAvail
-          bitSize <- save$bitSize
-          bitVec <- c(bitVec, bitSize)          
-          idTrimmed <- c(idTrimmed, save$idTrimmed)
-          idList$affect = paste(c(idList$affect, save$idTrimmed), 
-                 collapse=' ')
-        }
-
+        pedTrimmed <- save$ped
+        avail <- save$newAvail
+        bitSize <- save$bitSize
+        bitVec <- c(bitVec, bitSize)          
+        idTrimmed <- c(idTrimmed, save$idTrimmed)
+        idList$affect = paste(c(idList$affect, save$idTrimmed), 
+          collapse=' ')
+      }
+      
+      
+    } # end while (isTrimmed) & (bitSize > maxBits)
   
-    }
   
   nFinal <- length(pedTrimmed$id)
   
@@ -200,9 +196,10 @@ pedigree.shrink <- function(ped, avail, affected=NULL, seed=NULL, maxBits = 16){
               pedSizeIntermed = nIntermed,
               pedSizeFinal  = nFinal,
               seed = seed)
-  
+
+
   oldClass(obj) <- "pedigree.shrink"
-  
+
   return(obj)
 } 
 
@@ -235,7 +232,10 @@ be bugs to be discovered down the road.
 
 What was previously pedTrim is now split into two functions, pedigree.trim and findUnavail.  
 
-pedigree.trim : remove subjects from pedigree object given their id
+pedigree.trim : remove subjects from pedigree object given their id. 
+Update for version 1.2.8 (9/27/11) Allow creation of an empty pedigree 
+if all IDs are removed. This allows bitSize and 
+pedigree.shrink to still complete with an empty pedigree. 
 
 findUnavail: identify subjects are not available and who do not have 
 an available descendant.  Do this iteratively by successively removing 
@@ -243,7 +243,6 @@ unavailable terminal nodes.  Written by  Steve Iturria, PhD, modified
 by Dan Schaid.
 
 <<pedigree.trim>>=
-
 
 pedigree.trim <- function(removeID, ped){
   ## trim subjects from a pedigree who match the removeID 
@@ -258,43 +257,50 @@ pedigree.trim <- function(removeID, ped){
                  is.na(match(ped$id[ped$relation[,2]], removeID))
 
   nOrig <- length(ped$id)
-  nNew <- length(keep)
+  nNew <- sum(keep)
   
-  newAffected <- if(is.null(ped$affected)) newAffected <- rep(0, nOrig)
- 
-  if(is.matrix(ped$affected)) {
-    newAffected <- ped$affected[keep,]
+  if(nNew > 0) {
+  
+    newAffected <- if(is.null(ped$affected)) newAffected <- rep(0, nOrig)
+    
+    if(is.matrix(ped$affected)) {
+      newAffected <- ped$affected[keep,]
+    } else {
+      newAffected <- ped$affected[keep]
+    }
+    
+    id.new <- ped$id[keep] 
+    
+    
+    ## step1: update the father and mother indices
+    fid.new <- mid.new <- rep(NA, length(id.new))
+    fid.new[ped$findex[keep]>0] <- ped$id[ped$findex[keep]]
+    mid.new[ped$mindex[keep]>0] <- ped$id[ped$mindex[keep]]
+    
+    ## step2: any subject that is to be removed, remove them from being parents
+    fid.new[fid.new %in% removeID] <- NA
+    mid.new[mid.new %in% removeID] <- NA
+    
+    ## make new pedigree object with only essential items
+    newPed <- pedigree(id=id.new,
+                       dadid=fid.new,
+                       momid=mid.new, 
+                       missid=ped$missid,
+                       sex=as.numeric(ped$sex[keep]))
+    
+    ## trim non-required objects from ped
+    if(!is.null(ped$affected)) newPed$affected <- newAffected
+    if(!is.null(ped$status)) newPed$status <-  ped$status[keep]
+    
+    if(!is.null(ped$famid)) newPed$famid <- ped$famid[keep]
+    if(!is.null(ped$relation)) 
+      newPed$relation <- ped$relation[keep.relate,,drop=FALSE]
+
   } else {
-    newAffected <- ped$affected[keep]
-  }
-
-  id.new <- ped$id[keep] 
-  
-  
-  ## step1: update the father and mother indices
-  fid.new <- mid.new <- rep(0, length(id.new))
-  fid.new[ped$findex[keep]>0] <- ped$id[ped$findex[keep]]
-  mid.new[ped$mindex[keep]>0] <- ped$id[ped$mindex[keep]]
-
-  ## step2: any subject that is to be removed, remove them from being parents
-  fid.new[fid.new %in% removeID] <- 0
-  mid.new[mid.new %in% removeID] <- 0
-
-  
-  ## make new pedigree object with only essential items
-  newPed <- pedigree(id=id.new,
-                     dadid=fid.new,
-                     momid=mid.new,
-                     sex=as.numeric(ped$sex[keep]))
-
-  ## trim non-required objects from ped
-  if(!is.null(ped$affected)) newPed$affected <- newAffected
-  if(!is.null(ped$status)) newPed$status <-  ped$status[keep]
- 
-  if(!is.null(ped$famid)) newPed$famid <- ped$famid[keep]
-  if(!is.null(ped$relation)) 
-    newPed$relation <- ped$relation[keep.relate,,drop=FALSE]
-
+    ## empty pedigree
+    newPed <- list(id=NULL, dadid=NULL, momid=NULL, sex=NULL)
+    class(newPed) <- "pedigree"
+  }    
   return(newPed)
 }
 
@@ -364,9 +370,10 @@ findUnavailable <-function(ped, avail) {
       }
 
     if(num.found > 0) {
-      
+
       pedData <- pedData[-idx.to.remove, ]
-      
+      ## re-index parents, which varies depending on if the removed indx is
+      ## prior to parent index
       for(k in 1:nrow(pedData)){
         if(pedData$father[k] > 0) {
           pedData$father[k] <- pedData$father[k] -
@@ -387,14 +394,19 @@ findUnavailable <-function(ped, avail) {
     iter <- iter + 1   
     
   }
-    
-  ## a few more clean up steps
+  
+  ## A few more clean up steps
+
+  ## remove unavailable founders
   tmpPed <- excludeUnavailFounders(pedData$id, 
                         pedData$father, pedData$mother, pedData$avail)
-  
+
+  ## 
   tmpPed <- excludeStrayMarryin(tmpPed$id, tmpPed$father, tmpPed$mother)
+
   
   id.remove <- ped$id[is.na(match(ped$id, tmpPed$id))]
+
   return(id.remove)
   
 }
@@ -431,15 +443,18 @@ excludeUnavailFounders <- function(id, father, mother, avail)
     ##  Want to look at parents with only one child.
     ##  Look for parents with > 1 marriage.  If any
     ##  marriage has > 1 child then skip this mom/dad pair.
+    
     nmarr.dad <- table(dad)
     nmarr.mom <- table(mom)
     skip <- NULL
+    
     if(any(nmarr.dad > 1)) {
       ## Dads in >1 marriage
       ckdad <- which(as.logical(match(dad,
                       names(nmarr.dad)[which(nmarr.dad > 1)],nomatch=FALSE)))
       skip <- unique(c(skip, ckdad))
     }
+    
     if(any(nmarr.mom > 1)) {
       ## Moms in >1 marriage
       ckmom <- which(as.logical(match(mom,
@@ -454,11 +469,13 @@ excludeUnavailFounders <- function(id, father, mother, avail)
     } else {
       zed <- (sibship==1)
     }
+
     
     n <- sum(zed)
     idTrimmed <- NULL
     if(n>0)
       {
+        
         # dad and mom are the parents of sibships of size 1
         dad <- dad[zed]
         mom <- mom[zed]
@@ -478,7 +495,8 @@ excludeUnavailFounders <- function(id, father, mother, avail)
           if(both.founder & not.avail)   {
               ## remove mom and dad from ped, and zero-out parent 
               ## ids of their child
-            child <- father==dad[i] & mother==mom[i]
+                        
+            child <- which(father==which(id==dad[i]))          
             father[child] <- 0
             mother[child] <- 0
             
@@ -488,33 +506,27 @@ excludeUnavailFounders <- function(id, father, mother, avail)
             id <- id[excludeParents]
             father <- father[excludeParents]
             mother <- mother[excludeParents]
+
+            ## re-index father and mother, assume len(excludeParents)==2
+            father <- father - 1*(father > which(!excludeParents)[1]) -
+              1*(father > which(!excludeParents)[2])
             
+            mother <- mother - 1*(mother > which(!excludeParents)[1]) -
+              1*(mother > which(!excludeParents)[2])
+
             avail <- avail[excludeParents]
           } 
         }
       }
     
     nFinal <- length(id)
-    nTrimmed = nOriginal - nFinal
-
-    ## re-index father and mother
-    for(k in 1:length(father)) {
-
-      if(father[k] > 0) {
-      
-        father[k] <- father[k] - 
-                     sum(as.numeric(idTrimmed) < idOriginal[father[k]])
-      }
-      if(mother[k] > 0) {
-        mother[k] <- mother[k] -
-                     sum(as.numeric(idTrimmed) < idOriginal[mother[k]])
-                      
-      }
-    }
+    nTrimmed = nOriginal - nFinal 
+  
     
     return(list(nTrimmed = nTrimmed, idTrimmed=idTrimmed,
                 id=id, father=father, mother=mother))
   }
+
 
 
 @ 
@@ -536,7 +548,7 @@ bitSize <- function(ped) {
   ## calculate bit size of a pedigree
   
   if(class(ped) != "pedigree")
-    cat("Must be a pegigree object.\n")
+    stop("Must be a pegigree object.\n")
   
   father = ped$findex
   mother = ped$mindex
@@ -775,7 +787,7 @@ print.pedigree.shrink <- function(x, ...){
     cat("\n Unavailable subjects trimmed:\n", x$idList$unavail, "\n")
   
   if(!is.null(x$idList$noninform)) 
-    cat("\n Non-inormative subjects trimmed:\n", x$idList$noninform, "\n")
+    cat("\n Non-informative subjects trimmed:\n", x$idList$noninform, "\n")
   
   if(!is.null(x$idList$affect)) 
     cat("\n Informative subjects trimmed:\n", x$idList$affect, "\n")
@@ -906,32 +918,23 @@ pedigree object.
 #Initial revision
 #
 
-plot.pedigree.shrink <- function(x, bigped=FALSE, title="", ...){
+plot.pedigree.shrink <- function(x, bigped=FALSE, title="", 
+                                 xlegend="topright", ...){
 
-  ##  Plot pedigrees, coloring available subjects according
-  ##   to affection status.
+  ##  Plot pedigrees, coloring subjects according
+  ##   to availability, shaded by affected status used in shrink
 
-  #col.subj <- ifelse(x$avail==TRUE & is.na(x$pedObj$affected==0), 3, 1)
-  #col.subj <- ifelse(x$avail==TRUE & x$pedObj$affected==0, 4, col.subj)
-  #col.subj <- ifelse(x$avail==TRUE & x$pedObj$affected==1, 2, col.subj)
-  #col.subj <- ifelse(x$avail==TRUE & x$pedObj$affected==1, 5, col.subj)
-  
-  col.subj <- ifelse(x$avail==TRUE & is.na(x$pedObj$affected==0), 3, 1)
-  col.subj <- ifelse(x$avail==TRUE & x$pedObj$affected==0, 4, col.subj)
-  col.subj <- ifelse(x$avail==TRUE & x$pedObj$affected==1, 2, col.subj)
-  col.subj <- ifelse(x$avail==FALSE & x$pedObj$affected==1, 5, col.subj)
-  
   if(bigped==FALSE){
-    tmp <- plot(x$pedObj, col=col.subj)
+    tmp <- plot(x$pedObj, col=x$avail+1)
+  } else {
+    tmp <- plot.pedigree(x$pedObj, align=FALSE, packed=FALSE,
+                         col=x$avail+1, cex=0.5,symbolsize=0.5)
   }
-
-  if(bigped==TRUE){
-    tmp <- plot.pedigree(x$pedObj, align=FALSE, packed=F,symbolsize=0.5,col=col.subj) #cex=0.25)
-  }
-#  browser()
-#  legend(c(max(tmp$x)*.75, max(tmp$y)*.9), 
-#         legend=c("Unavail+Unaff", "Avail+Aff","Avail+Unaff","Avail+Unk","UnAvail+Aff"),
-#         pch=c("*","*","*","*", "*"), col=c(1,2,4,3,5), lty=rep(1,5),bty="n")
+  
+  legend(x=xlegend,
+         legend=c("Available","UnAvailable"),
+         pch=c(1,1), col=c(2,1),bty="n")
+  
   
   title(paste(title, "\nbits = ", x$bitSize[length(x$bitSize)]))
 }
@@ -946,7 +949,13 @@ Purpose: Determine set of maximum number of unrelated
          available subjects from a pedigree
 PI:      Dan Schaid
 Author(s): Dan Schaid, Shannon McDonnell
-Dates:   Created: 10/19/2007, Moved to mgenet: 11/3/2009
+Dates:   Created: 10/19/2007, Moved to kinship2: 6/2011
+
+In many pedigrees there are multiple sets of subjects that could be of the 
+size of the maximal set of unrelated subjects in a pedigree.  The set could
+contain a married-in uncle and any of a set of siblings from his 
+sister-in-law's family.  Therefore, the maximal sets include the uncle and 
+any of the sibship of his wife's sister.
 
 <<pedigree.unrelated>>=
 

@@ -19,7 +19,7 @@ plot.pedigree <- function(x, id = x$id, status = x$status,
 			  affected = x$affected, 
 			  cex = 1, col = 1,
 			  symbolsize = 1, branch = 0.6, 
-			  packed = TRUE, align = c(1,2), width = 8, 
+			  packed = TRUE, align = c(1.5,2), width = 8, 
 			  density=c(-1, 35,55,25), mar=c(4.1, 1, 4.1, 1),
 			  angle=c(90,65,40,0), keep.par=FALSE,
                           subregion, ...)
@@ -329,8 +329,8 @@ if(length(ckall>0)) cat('Did not plot the following people:',ckall,'\n')
     
 if(!keep.par) par(oldpar)
 
-tmp <- match(unique(plist$nid[plist$nid!=0]), plist$nid)
-invisible(list(plist=plist, x=plist$pos[tmp], y= -row(plist$pos)[tmp],
+tmp <- match(1:length(x$id), plist$nid)
+invisible(list(plist=plist, x=plist$pos[tmp], y= row(plist$pos)[tmp],
                boxw=boxw, boxh=boxh, call=Call))        
 @ 
 \subsection{Symbols}
@@ -363,7 +363,7 @@ if (ncol(affected)==1) {
         square = list(list(x=c(-1, -1, 1,1)/2,  y=c(0, 1, 1, 0))),
         circle = list(list(x=.5* cos(seq(0, 2*pi, length=50)),
                            y=.5* sin(seq(0, 2*pi, length=50)) + .5)),
-        diamond = list(list(x=c(0, -.5, 1, .5), y=c(0, .5, 1, .5))),
+        diamond = list(list(x=c(0, -.5, 0, .5), y=c(0, .5, 1, .5))),
         triangle= list(list(x=c(0, -.56, .56),  y=c(0, 1, 1))))
     }
 else {
@@ -583,3 +583,159 @@ subregion2 <- function(plist, subreg) {
     out
     }
 @ 
+
+
+\subsection{Legends}
+
+We define a function to draw a legend for the affected matrix. We do so
+by making use of the pie() function, which will draw a circle that will look
+like a woman (circle) in the pedigree who has all affected indicators ==1.  
+We do not show what the ``?'' means, and we do not cover what colors are 
+indicated by the coloring applied to subjects.
+
+We allow the legend to be added to the current pedigree plot by default,
+and it also works to draw a legend on a separate page.  The {\em new} argument
+controls this option. When new=TRUE, the default, the plot is added to the 
+current plot (assumed a pedigree plot), and placed in one of the corners
+of the plot given by {\em location}, which has options "bottomright", 
+"topright", "topleft", and "bottomleft", with ``bottomright'' the default.
+
+If new=FALSE, the pie graph is plotted from (-1,1) for both x and y, centered 
+at 0,0 with radius 1. With angle.init=90 and twopi = 2*pi, we control the 
+start to be at the top and the sections are plotted counter-clockwise, respectively, which are some of the settings from the original pie() function.  
+
+When we adapted the pie() function to plot in different, non-(0,0) locations
+on the pedigree, we had these major issues:
+
+1) The Y-axis actually goes from min(y) at the top and max(y) at the bottom.
+2) To get the polygon in pie() to not be oblong, we made sure to use asp=1, 
+which re-sets the x- and/or y-axis again.  Therefore, we have to manage the 
+placing of the pie in reference to those updated scalings using par(``usr'').
+3) We have to choose a center that is not 0,0, and have to add the center
+x,y coordinates to some of the default settings of pie().
+
+We carry forward from the plot.pedigree the same density and angle defaults
+for shading sections of each subject's symbol with polygon.  
+
+
+<<pedigree.legend>>=
+
+pedigree.legend <- function (ped, labels = dimnames(ped$affected)[[2]],
+    edges = 200, radius=NULL, location="bottomright", new=TRUE,
+    density = c(-1, 35, 55, 25),  angle = c(90, 65, 40, 0), ...) 
+{
+   
+    naff <- ncol(ped$affected)
+    x <- rep(1,naff)
+    
+    # Defaults for plotting on separate page:
+    ## start at the top, always counter-clockwise, black/white
+    init.angle <- 90
+    twopi <- 2 * pi
+    col <- 1
+
+    default.labels <- paste("affected-", 1:naff, sep='')
+    if (is.null(labels)) labels <- default.labels
+    
+    ## assign labels to those w/ zero-length label
+    whichNoLab <- which(nchar(labels) < 1)
+    if(length(whichNoLab))
+      labels[whichNoLab] <- paste("affected-", whichNoLab, sep='')
+
+    
+    x <- c(0, cumsum(x)/sum(x))
+    dx <- diff(x)
+    nx <- length(dx)
+    ## settings for plotting on a new page
+    if(!new) {
+      plot.new()
+      
+      pin <- par("pin")
+      # radius, xylim, center, line-lengths set to defaults of pie()
+      radius <- 1
+      xlim <- ylim <- c(-1, 1)
+      center <- c(0,0)
+      llen <- 0.05
+      
+      if (pin[1L] > pin[2L]) 
+        xlim <- (pin[1L]/pin[2L]) * xlim
+      else ylim <- (pin[2L]/pin[1L]) * ylim
+      
+      plot.window(xlim, ylim, "", asp = 1)
+      
+    } else {
+      ## Settings to add to pedigree plot
+      ## y-axis is flipped, so adjust angle and rotation
+      init.angle <- -1*init.angle
+      twopi <- -1*twopi
+
+      ## track usr xy limits. With asp=1, it re-scales to have aspect ratio 1:1
+      usr.orig <- par("usr")
+      plot.window(xlim=usr.orig[1:2], ylim=usr.orig[3:4], "", asp=1)
+      usr.asp1 <- par("usr")
+
+      ## set line lengths
+      llen <- radius*.15
+     
+      ## also decide on good center/radius if not given
+      if(is.null(radius))
+        radius <- .5
+     
+      ## get center of pie chart for coded
+      pctusr <- .10*abs(diff(usr.asp1[3:4]))
+      center = switch(location,
+        "bottomright" = c(max(usr.asp1[1:2])-pctusr,max(usr.asp1[3:4])-pctusr),
+        "topright" = c(max(usr.asp1[1:2])-pctusr, min(usr.asp1[3:4]) + pctusr),
+        "bottomleft" =c(min(usr.asp1[1:2]) + pctusr, max(usr.asp1[3:4])-pctusr),
+        "topleft" = c(min(usr.asp1[1:2]) + pctusr, min(usr.asp1[3:4]) + pctusr))
+     
+    }
+    
+    col <- rep(col, length.out = nx)
+    border <- rep(1, length.out = nx)
+    lty <- rep(1, length.out = nx)
+    angle <- rep(angle, length.out = nx)
+    density <- rep(density, length.out = nx)
+  
+    t2xy <- function(t) {
+        t2p <- twopi * t + init.angle * pi/180
+        list(x = radius * cos(t2p), y = radius * sin(t2p))
+    }
+    for (i in 1L:nx) {
+        n <- max(2, floor(edges * dx[i]))
+        P <- t2xy(seq.int(x[i], x[i + 1], length.out = n))
+        P$x <- P$x + center[1]
+        P$y <- P$y + center[2]
+        
+        polygon(c(P$x, center[1]), c(P$y, center[2]), density = density[i],
+                angle = angle[i], border = border[i], col = col[i],
+                lty = lty[i])
+
+        P <- t2xy(mean(x[i + 0:1]))
+        if(new) {
+          ## not centered at 0,0, so added center to x,y
+          P$x <- P$x + center[1]
+          P$y <- center[2] + ifelse(new, P$y, -1*P$y)
+        }
+        
+        lab <- as.character(labels[i])
+        if (!is.na(lab) && nzchar(lab)) {
+          ## put lines
+          lines(x=c(P$x, P$x + ifelse(P$x<center[1], -1*llen, llen)),
+                y=c(P$y, P$y + ifelse(P$y<center[2], -1*llen, llen)))
+
+          ##  put text just beyond line-length away from pie
+          text(x=P$x + ifelse(P$x < center[1], -1.2*llen, 1.2*llen),
+               y=P$y + ifelse(P$y < center[2], -1.2*llen, 1.2*llen),
+               labels[i], xpd = TRUE, 
+               adj = ifelse(P$x < center[1], 1, 0), ...)
+        }
+    }
+    
+    invisible(NULL)
+}
+@ 
+
+
+
+

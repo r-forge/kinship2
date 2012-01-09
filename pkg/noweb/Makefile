@@ -19,6 +19,7 @@ SFUN =  align.pedigree.R\
 	makekinship.R \
 	pedigree.R \
 	plot.pedigree.R \
+	pedigree.legend.R \
 	print.pedigree.R \
 	as.data.frame.pedigree.R \
 	ped2df.R \
@@ -35,7 +36,7 @@ SFUN =  align.pedigree.R\
 	pedigree.unrelated.R
 
 
-RDIR = ../../R
+RDIR = ../R
 
 all.pdf: all.tex
 	pdflatex all

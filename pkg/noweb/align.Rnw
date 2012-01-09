@@ -64,6 +64,15 @@ to figure that out.
 The first thing to be done is to check on twins.  They are a nuisance, since
 twins need to move together.  The [[ped$relation]] object has a factor in it, 
 so first turn that into numeric.
+We create 3 vectors: [[twinrel]] is a matrix containing pairs of twins and
+their relation, it is a subset of the incoming [[relation]] matrix.
+The [[twinset]] vector identifies twins, it is 0 for anyone who is not a 
+part of a 
+multiple-birth set, and a unique id for each member of a set.  We use the
+minimum row number of the members of the set as the id.
+[[twinord]] is a starting order vector for the set; it mostly makes sure
+that there are no ties (who knows what a user may have used for starting 
+values.)  
 <<autohint>>=
 autohint <- function(ped, hints) {
     if (!is.null(ped$hints)) return(ped$hints)  #nothing to do
@@ -154,7 +163,7 @@ shift <- function(id, sibs, goleft, hint, twinrel, twinset) {
     }
 @ 
 
-Now, get an ordering of the pedigree to "look at".  
+Now, get an ordering of the pedigree to use as the starting point.  
 The numbers start at 1 on each level.
 We don't need the final ``prettify" step, hence align=F.
 If there is a hints structure entered, we retain it's non-zero entries,
@@ -172,8 +181,8 @@ if (!missing(hints)) {
 else horder <- integer(n)
 
 for (i in unique(depth)) {
-    who <- (depth==i & horder==0)
-    if (any(who)) horder[who] <- 1:sum(who)
+    who <- (depth==i & horder==0)  
+    if (any(who)) horder[who] <- 1:sum(who) #screwy input - overwrite it
     }
 
 if (any(twinset>0)) {
@@ -290,24 +299,70 @@ for (lev in 1:maxlev) {
                     }
                 }
             }
+@ 
 
+At this point the most common situation will be what is shown in 
+figure \ref{fig:auto1}.  The variable [[anchor]] is (2,1) showing that the
+left hand copy of subject 9 is connected to an anchored spouse and the
+right hand copy is himself anchored.  The proper addition to the
+spouselist is [[(4, 9, dpairs)]], where the last is the hint from the
+dpairs routine as to which of the parents is the one to follow further when
+drawing the entire pedigree.  (When drawing a pedigree and there is a
+child who can be reached from multiple founders, we only want to find
+the child once.) 
+
+The double marry-in found in figure \ref{fig:auto2}, subject 11, leads
+to value of (2,2) for the [[anchor]] variable.  The proper addition to
+the [[sptemp]] matrix in this case will be two rows, (5, 11, 1) indicating
+that 5 should be plotted left of 11 for the 5-11 marriage, with the first
+partner as the anchor, and a second row (11, 9, 2).
+This will cause the common spouse to be plotted in the middle.
+
+Multiple marriages can lead to unanchored subjects.  
+In the left hand portion of figure \ref{fig:auto3} we have two
+double marriages, one on the left and one on the right with 
+anchor values of (0,2) and (2,0), respectively.  
+We add two marriages to the return list to ensure that both print
+in the correct left-right order; the 14-4 one is correct by default
+but it's easier to output a line than check sex orders.  %'
+
+\begin{figure}
+  \myfig{autohint3}
+  \caption{Pedigrees with multiple marriages}
+  \label{fig:auto3}
+  \end{figure}
+
+The left panel of figure \ref{fig:auto3} shows a case where
+subject 11 marries into the pedigree but also has a second spouse.
+The [[anchor]] variable for
+this case will be (2, 0); the first instance of 11 has a spouse tied
+into the tree above, the second instance has no upward connections.
+In the top row, subject 6 has values of (0, 0) since neither 
+connection has an upward parent.  
+In the right hand panel subject 2 has an anchor variable of (0,1).
+
+<<autohint-fixup>>=
         # add the marriage(s)
         id1 <- idlist[dpairs[i,1]]  # i,1 and i,2 point to the same person
-        if (anchor[1] !=1) {
-            id2 <- idlist[spouse[1]]
-            if (anchor[2] ==1)      temp <- c(id2, id1, dpairs[i,3])
-            else if (anchor[1] ==0) temp <- c(id2, id1, 2)
-            else                    temp <- c(id2, id1, 1)
-            sptemp <- rbind(sptemp, temp)
-            }
-        if (anchor[2] !=1) {
-            id2 <- idlist[spouse[2]]
-            if  (anchor[1] ==1)     temp <- c(id1, id2, dpairs[i,3])
-            else if (anchor[2] ==0) temp <- c(id1, id2, 1)             
-            else                    temp <- c(id1, id2, 2)
-            sptemp <- rbind(sptemp, temp)
-            }
-      }
+        id2 <- idlist[spouse[1]]
+        id3 <- idlist[spouse[2]]
+
+        temp <- switch(paste(anchor, collapse=''),
+                       "21" = c(id2, id1, dpairs[i,3]),   #the most common case
+                       "22" = rbind(c(id2, id1, 1), c(id1, id3, 2)),
+                       "02" = c(id2, id1, 0), 
+                       "20" = c(id2, id1, 0), 
+                       "00" = rbind(c(id1, id3, 0), c(id2, id1, 0)),
+                       "01" = c(id2, id1, 2),
+                       "10" = c(id1, id2, 1),
+                       NULL)
+
+        if (is.null(temp)) { 
+            warning("Unexpected result in autohint, please contact developer")
+            return(list(order=1:n))  #punt
+          }         
+        else sptemp <- rbind(sptemp, temp)
+        }
     #
     # Recompute, since this shifts things on levels below
     #
@@ -332,16 +387,14 @@ are connected to their parents.
 
 \begin{figure}
   \myfig{autohint2}
-  \caption{Two test pedigrees showing the initial attempt on the left,
-    and that after autohint on the right.}
+  \caption{A more complex pedigree.}
   \label{fig:align2}
 \end{figure}
 
 Figure \ref{fig:align2} shows a more complex case with several arcs.
 In the upper left is a double marry-in.
 The [[anchor]] variable in the above code
-will be zero: neither of the two copies of subject 11 is anchored to
-a parent.
+will be (2,2) since both copies have an anchored spouse.
 The left and right sets of sibs are reordered (even though the left
 one does not need it), and two lines are added to the sptemp matrix:
 (5,11,1) and (11,9,2).
@@ -426,13 +479,13 @@ findspouse <- function(mypos, plist, lev, ped) {
     if (rpos==lpos) stop("autohint bug 3")
     
     opposite <-ped$sex[plist$nid[lev,lpos:rpos]] != ped$sex[plist$nid[lev,mypos]]
-    if (sum(opposite) != 1) stop("autohint bug 4")
-    spouse <- (lpos:rpos)[opposite]
+    if (!any(opposite)) stop("autohint bug 4")  # no spouse
+    spouse <- min((lpos:rpos)[opposite])  #can happen with a triple marriage
     spouse
     }
 @ 
 
-The findsibs function starts with a position and returns a positin as well.
+The findsibs function starts with a position and returns a position as well.
 <<autohint-find>>=
 findsibs <- function(mypos, plist, lev) {
     family <- plist$fam[lev, mypos]
@@ -442,9 +495,9 @@ findsibs <- function(mypos, plist, lev) {
 @ 
 
 
-\subsection{Main routine}
+\subsection{Align.pedigree}
 \label{sect:alignped}
-The main routine accepts has 5 arguments
+The top level routine for alignment has 5 arguments
 \begin{description}
     \item[ped] a pedigree or pedigreeList object. In the case of
       the latter we loop over each family separately.
@@ -520,9 +573,10 @@ id (ignoring the actual id label).
   unique (but temporary) spouse-pair id using a simple hash.
 \end{itemize}
 
-When importing data from autohint, it's spouse matrix has column 1 =    %'
-subject plotted on the left, 2= subject plotted on the right.
-The [[spouselist]] array has 1=husband, 2=wife.  
+When importing data from autohint, that routine's spouse matrix %'
+has column 1 =
+subject plotted on the left, 2 = subject plotted on the right.
+The [[spouselist]] array has column 1=husband, 2=wife.  
 Hence the clumsy looking ifelse below.  The autohint format is more
 congenial to users, who might modify the output, the spouselist format
 easier for the code.
@@ -621,8 +675,8 @@ There are 4 tasks to doS
 #
 # Unhash out the spouse and nid arrays
 #
-nid    <- floor(rval$nid)
-spouse <- 1*(rval$nid != nid)
+nid    <- matrix(as.integer(floor(rval$nid)), nrow=nrow(rval$nid))
+spouse <- 1L*(rval$nid != nid)
 maxdepth <- nrow(nid)
 
 # For each spouse pair, find out if it should be connected with
